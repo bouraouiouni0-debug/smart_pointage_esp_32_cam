@@ -65,6 +65,13 @@ app.get('/api/deleteall', auth, async (req, res) => {
   try { const r = await ask('deleteall'); res.send(r.body); }
   catch (e) { res.status(504).send(e.message); }
 });
+app.get('/api/table', auth, async (req, res) => {
+  try {
+    const r = await ask('table');
+    if (r.type !== 'file') return res.status(404).send('data introuvable');
+    res.type('text/plain; charset=utf-8').send(r.body.toString('utf8'));
+  } catch (e) { res.status(504).send(e.message); }
+});
 app.get('/api/download', auth, async (req, res) => {
   try {
     const r = await ask('download', req.query.file);
@@ -88,9 +95,12 @@ button{margin:5px;padding:8px;cursor:pointer}
 <body>
 <h2>Gestion SD Card (cloud)</h2>
 <p>ESP32 : <span id="st">...</span></p>
+<button onclick="loadTable()" style="background:green;color:white">Afficher le tableau (data)</button>
 <button onclick="loadFiles()">Actualiser fichiers</button>
 <button onclick="deleteAllFiles()" style="background:red;color:white">Delete All</button>
 <p id="msg"></p>
+<div id="table"></div>
+<h3>Fichiers</h3>
 <div id="fileList"></div>
 <script>
 const K = new URLSearchParams(location.search).get('k') || '';
@@ -106,6 +116,25 @@ function status(){
 }
 setInterval(status,3000); status();
 
+function loadTable(){
+  msg('Chargement du tableau...');
+  fetch(q('/api/table')).then(r=>{
+    if(!r.ok) throw new Error(r.status==404?'Fichier data introuvable sur la SD':'ESP32 ne repond pas');
+    return r.text();
+  }).then(t=>{
+    const rows=t.split(/\\r?\\n/).filter(l=>l.trim()!=='');
+    let h='<table border="1" cellpadding="6" style="margin:auto;border-collapse:collapse"><tr><th>Nom</th><th>Prenom</th><th>ID</th><th>Heure</th><th>Date</th><th>Photo</th></tr>';
+    rows.forEach(l=>{
+      const c=l.split(',');
+      h+='<tr>';
+      for(let i=0;i<5;i++) h+='<td>'+(c[i]||'')+'</td>';
+      const p=c[5]||'';
+      h+='<td>'+(p?'<a href="'+q('/api/download?file='+encodeURIComponent(p))+'">'+p+'</a>':'')+'</td></tr>';
+    });
+    document.getElementById('table').innerHTML=h+'</table>';
+    msg('');
+  }).catch(e=>msg(e.message));
+}
 function loadFiles(){
   msg('Chargement...');
   fetch(q('/api/list')).then(r=>{ if(!r.ok) throw new Error('ESP32 ne repond pas'); return r.json(); })
@@ -129,10 +158,43 @@ function deleteAllFiles(){
     fetch(q('/api/deleteall')).then(r=>r.text()).then(t=>{alert(t);loadFiles();});
   }
 }
+loadTable();
 loadFiles();
 </script></body></html>`;
 
 app.get('/sd', auth, (req, res) => res.send(PAGE));
+
+/* ---------- Page avec uniquement le tableau ---------- */
+const TABLE_PAGE = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tableau</title>
+<style>
+body{font-family:Arial;margin:20px}
+table{border-collapse:collapse;margin:auto}
+th,td{border:1px solid #888;padding:6px 12px;text-align:center}
+th{background:#eee}
+</style></head>
+<body>
+<div id="t">Chargement...</div>
+<script>
+const K = new URLSearchParams(location.search).get('k') || '';
+fetch('/api/table?k=' + encodeURIComponent(K))
+.then(r=>{ if(!r.ok) throw new Error(r.status==404?'Fichier data introuvable sur la SD':'ESP32 ne repond pas'); return r.text(); })
+.then(t=>{
+  const rows=t.split(/\\r?\\n/).filter(l=>l.trim()!=='');
+  let h='<table><tr><th>Nom</th><th>Prenom</th><th>ID</th><th>Heure</th><th>Date</th><th>Photo</th></tr>';
+  rows.forEach(l=>{
+    const c=l.split(',');
+    h+='<tr>';
+    for(let i=0;i<6;i++) h+='<td>'+(c[i]||'')+'</td>';
+    h+='</tr>';
+  });
+  document.getElementById('t').innerHTML=h+'</table>';
+})
+.catch(e=>{ document.getElementById('t').textContent=e.message; });
+</script></body></html>`;
+app.get('/table', auth, (req, res) => res.send(TABLE_PAGE));
+
 app.get('/', (req, res) => res.send('Serveur OK. Ouvrir /sd?k=VOTRE_CLE'));
 
 app.listen(process.env.PORT || 3000, () => console.log('Serveur demarre'));
